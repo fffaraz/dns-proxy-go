@@ -84,6 +84,15 @@ func main() {
 
 func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	start := time.Now()
+	host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
+	if len(m.Question) != 1 {
+		log.Printf("[%s] %s rejected query with %d questions\n", proto, host, len(m.Question))
+		r := new(dns.Msg)
+		r.SetRcode(m, dns.RcodeFormatError)
+		w.WriteMsg(r)
+		return
+	}
+	q := m.Question[0]
 	r, _, err := client.Exchange(m, upstreamAddr)
 	if err != nil {
 		log.Printf("[%s] Upstream exchange failed: %s\n", proto, err)
@@ -91,15 +100,8 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		r.SetRcode(m, dns.RcodeServerFailure)
 	}
 	w.WriteMsg(r)
-	elapsed := time.Since(start).Round(time.Millisecond)
-	host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
-	if len(m.Question) > 0 {
-		q := m.Question[0]
-		log.Printf("[%s] %s %s %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
-			dns.RcodeToString[r.Rcode], elapsed)
-	} else {
-		log.Printf("[%s] %s (no question) %s %s\n", proto, host, dns.RcodeToString[r.Rcode], elapsed)
-	}
+	log.Printf("[%s] %s %s %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
+		dns.RcodeToString[r.Rcode], time.Since(start).Round(time.Millisecond))
 }
 
 func udpHandler(w dns.ResponseWriter, m *dns.Msg) {
