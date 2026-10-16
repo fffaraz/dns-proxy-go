@@ -16,6 +16,7 @@ dig @127.0.0.1 -p 5300 example.com +tcp    # test over TCP
 
 ```sh
 ./microdns-proxy -p 5300 -blocklist blocklist.txt
+./microdns-proxy -p 5300 -blocklist ads.txt -blocklist trackers.txt   # repeatable; lists are merged
 ```
 
 Queries for a listed domain, or any subdomain of it, get NXDOMAIN without
@@ -34,9 +35,9 @@ For example, to use the StevenBlack list:
 curl -fsSL -o blocklist.txt https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
 ```
 
-Send `SIGHUP` to reload the file without restarting (`pkill -HUP microdns-proxy`,
-or `docker compose kill -s HUP`). If the reload fails, the previous list stays
-active. For Docker, uncomment the `volumes`/`command` lines in `compose.yaml`.
+Send `SIGHUP` to reload the files without restarting (`pkill -HUP microdns-proxy`,
+or `docker compose kill -s HUP`). If any file fails to load, the previous list
+stays active. For Docker, uncomment the `volumes`/`command` lines in `compose.yaml`.
 
 ## Using it as the system resolver (systemd-resolved)
 
