@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
@@ -14,6 +15,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,11 +39,22 @@ var client = &dns.Client{
 	},
 }
 
+// blocklist holds the current set of blocked FQDNs (lowercase, trailing dot).
+// It is nil when no blocklist is configured.
+var blocklist atomic.Pointer[map[string]struct{}]
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	port := flag.Int("p", 53, "port to listen on")
+	blocklistPath := flag.String("blocklist", "", "file of domains to block (plain, hosts or ||domain^ format); reloaded on SIGHUP")
 	flag.Parse()
 	addr := ":" + strconv.Itoa(*port)
+
+	if *blocklistPath != "" {
+		if err := loadBlocklist(*blocklistPath); err != nil {
+			log.Fatalf("Failed to load blocklist: %s\n", err)
+		}
+	}
 
 	go func() {
 		srv := &dns.Server{Addr: addr, Net: "udp4", Handler: dns.HandlerFunc(udpHandler)}
@@ -58,9 +72,77 @@ func main() {
 	}()
 	log.Printf("Listening on %s (udp/tcp), forwarding to %s over TLS\n", addr, upstreamAddr)
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	s := <-sig
-	log.Fatalf("Signal (%d) received, stopping\n", s)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	for s := range sig {
+		if s != syscall.SIGHUP {
+			log.Fatalf("Signal (%d) received, stopping\n", s)
+		}
+		if *blocklistPath == "" {
+			log.Println("SIGHUP received, but no blocklist configured")
+			continue
+		}
+		if err := loadBlocklist(*blocklistPath); err != nil {
+			log.Printf("Failed to reload blocklist, keeping the previous one: %s\n", err)
+		}
+	}
+}
+
+// Names that hosts-format lists map to loopback addresses and that must not be blocked.
+var hostsBoilerplate = map[string]bool{
+	"localhost.": true, "localhost.localdomain.": true, "local.": true, "broadcasthost.": true,
+	"ip6-localhost.": true, "ip6-loopback.": true, "ip6-localnet.": true, "ip6-mcastprefix.": true,
+	"ip6-allnodes.": true, "ip6-allrouters.": true, "ip6-allhosts.": true,
+}
+
+// loadBlocklist reads path and atomically replaces the active blocklist. Each line may be a
+// plain domain, a hosts entry ("0.0.0.0 domain ...") or an adblock rule ("||domain^").
+func loadBlocklist(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	set := make(map[string]struct{})
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line, _, _ := strings.Cut(sc.Text(), "#")
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if net.ParseIP(fields[0]) != nil {
+			fields = fields[1:] // hosts format: drop the address
+		}
+		for _, name := range fields {
+			name = strings.TrimSuffix(strings.TrimPrefix(name, "||"), "^")
+			name = dns.Fqdn(strings.ToLower(name))
+			if _, ok := dns.IsDomainName(name); !ok || name == "." || hostsBoilerplate[name] || net.ParseIP(strings.TrimSuffix(name, ".")) != nil {
+				continue
+			}
+			set[name] = struct{}{}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return err
+	}
+	blocklist.Store(&set)
+	log.Printf("Loaded %d blocked domains from %s\n", len(set), path)
+	return nil
+}
+
+// isBlocked reports whether name or any of its parent domains is in the blocklist.
+func isBlocked(name string) bool {
+	set := blocklist.Load()
+	if set == nil {
+		return false
+	}
+	name = strings.ToLower(name)
+	for off, end := 0, false; !end; off, end = dns.NextLabel(name, off) {
+		if _, ok := (*set)[name[off:]]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func verifyPin(rawCerts [][]byte, _ [][]*x509.Certificate) error {
@@ -92,6 +174,14 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		w.WriteMsg(r)
 		return
 	}
+	q := m.Question[0]
+	if isBlocked(q.Name) {
+		r := new(dns.Msg)
+		r.SetRcode(m, dns.RcodeNameError)
+		w.WriteMsg(r)
+		log.Printf("[%s] %s %s %s BLOCKED\n", proto, host, dns.TypeToString[q.Qtype], q.Name)
+		return
+	}
 	r, _, err := client.Exchange(m, upstreamAddr)
 	if err != nil {
 		log.Printf("[%s] Upstream exchange failed: %s\n", proto, err)
@@ -100,7 +190,6 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	}
 	w.WriteMsg(r)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	q := m.Question[0]
 	log.Printf("[%s] %s %s %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
 		dns.RcodeToString[r.Rcode], elapsed)
 }
