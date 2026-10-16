@@ -31,28 +31,9 @@ var client = &dns.Client{
 	Net: "tcp-tls",
 	TLSConfig: &tls.Config{
 		ServerName:            upstreamServerName,
-		MinVersion:            tls.VersionTLS12,
+		MinVersion:            tls.VersionTLS13,
 		VerifyPeerCertificate: verifyPin,
 	},
-}
-
-func verifyPin(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-	want, err := base64.StdEncoding.DecodeString(upstreamSPKIPin)
-	if err != nil {
-		return err
-	}
-	if len(rawCerts) == 0 {
-		return errors.New("no peer certificate")
-	}
-	cert, err := x509.ParseCertificate(rawCerts[0])
-	if err != nil {
-		return err
-	}
-	got := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
-	if !bytes.Equal(got[:], want) {
-		return fmt.Errorf("certificate pin mismatch: got %s", base64.StdEncoding.EncodeToString(got[:]))
-	}
-	return nil
 }
 
 func main() {
@@ -82,6 +63,25 @@ func main() {
 	log.Fatalf("Signal (%d) received, stopping\n", s)
 }
 
+func verifyPin(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+	if len(rawCerts) == 0 {
+		return errors.New("no peer certificate")
+	}
+	cert, err := x509.ParseCertificate(rawCerts[0])
+	if err != nil {
+		return err
+	}
+	want, err := base64.StdEncoding.DecodeString(upstreamSPKIPin)
+	if err != nil {
+		return err
+	}
+	got := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	if !bytes.Equal(got[:], want) {
+		return fmt.Errorf("certificate pin mismatch: got %s", base64.StdEncoding.EncodeToString(got[:]))
+	}
+	return nil
+}
+
 func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	start := time.Now()
 	host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
@@ -92,7 +92,6 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		w.WriteMsg(r)
 		return
 	}
-	q := m.Question[0]
 	r, _, err := client.Exchange(m, upstreamAddr)
 	if err != nil {
 		log.Printf("[%s] Upstream exchange failed: %s\n", proto, err)
@@ -101,6 +100,7 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	}
 	w.WriteMsg(r)
 	elapsed := time.Since(start).Round(time.Millisecond)
+	q := m.Question[0]
 	log.Printf("[%s] %s %s %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
 		dns.RcodeToString[r.Rcode], elapsed)
 }
