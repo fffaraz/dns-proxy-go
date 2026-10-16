@@ -100,8 +100,9 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		r.SetRcode(m, dns.RcodeServerFailure)
 	}
 	w.WriteMsg(r)
+	elapsed := time.Since(start).Round(time.Millisecond)
 	log.Printf("[%s] %s %s %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
-		dns.RcodeToString[r.Rcode], time.Since(start).Round(time.Millisecond))
+		dns.RcodeToString[r.Rcode], elapsed)
 }
 
 func udpHandler(w dns.ResponseWriter, m *dns.Msg) {
