@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -54,6 +55,7 @@ func verifyPin(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 }
 
 func main() {
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	port := flag.Int("p", 53, "port to listen on")
 	flag.Parse()
 	addr := ":" + strconv.Itoa(*port)
@@ -82,7 +84,8 @@ func main() {
 func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	if len(m.Question) > 0 {
 		q := m.Question[0]
-		log.Printf("[%s] %s %s %s\n", proto, w.RemoteAddr(), dns.TypeToString[q.Qtype], q.Name)
+		host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
+		log.Printf("[%s] %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name)
 	}
 	r, _, err := client.Exchange(m, upstreamAddr)
 	if err != nil {
