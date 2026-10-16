@@ -8,7 +8,8 @@ go build -o microdns-proxy .
 sudo ./microdns-proxy          # listens on port 53 (needs root or CAP_NET_BIND_SERVICE)
 ./microdns-proxy -p 5300       # listens on a custom port
 
-dig @127.0.0.1 -p 5300 example.com
+dig @127.0.0.1 -p 5300 example.com         # test over UDP
+dig @127.0.0.1 -p 5300 example.com +tcp    # test over TCP
 ```
 
 ## Updating the pinned key
@@ -21,7 +22,7 @@ show `certificate pin mismatch: got <new value>`.
 To get the current value:
 
 ```sh
-echo | openssl s_client -connect 1.1.1.1:853 -servername cloudflare-dns.com 2>/dev/null \
+echo | openssl s_client -connect 1.1.1.2:853 -servername cloudflare-dns.com 2>/dev/null \
   | openssl x509 -pubkey -noout \
   | openssl pkey -pubin -outform der \
   | openssl dgst -sha256 -binary \
