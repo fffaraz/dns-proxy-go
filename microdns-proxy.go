@@ -22,7 +22,7 @@ import (
 
 const (
 	upstreamAddr       = "1.1.1.2:853"
-	upstreamServerName = "cloudflare-dns.com"
+	upstreamServerName = "security.cloudflare-dns.com"
 	// base64(sha256(SubjectPublicKeyInfo)) of the upstream leaf certificate.
 	upstreamSPKIPin = "ltQ6aXy3tqpNZKJdnevMD7oR+IsI5rNWbOssFDrl+Ew="
 )
