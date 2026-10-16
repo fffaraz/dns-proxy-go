@@ -2,3 +2,4 @@
 .gitignore
 README.md
 microdns-proxy
+blocklist.txt
