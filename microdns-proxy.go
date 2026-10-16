@@ -43,15 +43,22 @@ var client = &dns.Client{
 // It is nil when no blocklist is configured.
 var blocklist atomic.Pointer[map[string]struct{}]
 
+// stringList is a flag.Value that collects every occurrence of a repeatable flag.
+type stringList []string
+
+func (l *stringList) String() string     { return strings.Join(*l, ",") }
+func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
+
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	port := flag.Int("p", 53, "port to listen on")
-	blocklistPath := flag.String("blocklist", "", "file of domains to block (plain, hosts or ||domain^ format); reloaded on SIGHUP")
+	var blocklistPaths stringList
+	flag.Var(&blocklistPaths, "blocklist", "file of domains to block (plain, hosts or ||domain^ format); repeatable; reloaded on SIGHUP")
 	flag.Parse()
 	addr := ":" + strconv.Itoa(*port)
 
-	if *blocklistPath != "" {
-		if err := loadBlocklist(*blocklistPath); err != nil {
+	if len(blocklistPaths) > 0 {
+		if err := loadBlocklists(blocklistPaths); err != nil {
 			log.Fatalf("Failed to load blocklist: %s\n", err)
 		}
 	}
@@ -77,11 +84,11 @@ func main() {
 		if s != syscall.SIGHUP {
 			log.Fatalf("Signal (%d) received, stopping\n", s)
 		}
-		if *blocklistPath == "" {
+		if len(blocklistPaths) == 0 {
 			log.Println("SIGHUP received, but no blocklist configured")
 			continue
 		}
-		if err := loadBlocklist(*blocklistPath); err != nil {
+		if err := loadBlocklists(blocklistPaths); err != nil {
 			log.Printf("Failed to reload blocklist, keeping the previous one: %s\n", err)
 		}
 	}
@@ -94,15 +101,30 @@ var hostsBoilerplate = map[string]bool{
 	"ip6-allnodes.": true, "ip6-allrouters.": true, "ip6-allhosts.": true,
 }
 
-// loadBlocklist reads path and atomically replaces the active blocklist. Each line may be a
-// plain domain, a hosts entry ("0.0.0.0 domain ...") or an adblock rule ("||domain^").
-func loadBlocklist(path string) error {
+// loadBlocklists reads all paths into one set and atomically replaces the active blocklist.
+// If any file fails, the active blocklist is left unchanged.
+func loadBlocklists(paths []string) error {
+	set := make(map[string]struct{})
+	for _, path := range paths {
+		before := len(set)
+		if err := readBlocklist(path, set); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		log.Printf("Read %d new blocked domains from %s\n", len(set)-before, path)
+	}
+	blocklist.Store(&set)
+	log.Printf("Loaded %d blocked domains from %d file(s)\n", len(set), len(paths))
+	return nil
+}
+
+// readBlocklist adds the domains in path to set. Each line may be a plain domain,
+// a hosts entry ("0.0.0.0 domain ...") or an adblock rule ("||domain^").
+func readBlocklist(path string, set map[string]struct{}) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	set := make(map[string]struct{})
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line, _, _ := strings.Cut(sc.Text(), "#")
@@ -122,12 +144,7 @@ func loadBlocklist(path string) error {
 			set[name] = struct{}{}
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return err
-	}
-	blocklist.Store(&set)
-	log.Printf("Loaded %d blocked domains from %s\n", len(set), path)
-	return nil
+	return sc.Err()
 }
 
 // isBlocked reports whether name or any of its parent domains is in the blocklist.
