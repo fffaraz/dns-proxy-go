@@ -196,7 +196,8 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		r := new(dns.Msg)
 		r.SetRcode(m, dns.RcodeNameError)
 		w.WriteMsg(r)
-		log.Printf("[%s] %s %s %s BLOCKED\n", proto, host, dns.TypeToString[q.Qtype], q.Name)
+		log.Printf("[%s] %s %s %s BLOCKED %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
+			time.Since(start).Round(time.Microsecond))
 		return
 	}
 	r, _, err := client.Exchange(m, upstreamAddr)
