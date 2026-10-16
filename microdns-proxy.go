@@ -7,10 +7,12 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/miekg/dns"
@@ -52,36 +54,49 @@ func verifyPin(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 }
 
 func main() {
-	handler := dns.HandlerFunc(dnsHandler)
+	port := flag.Int("p", 53, "port to listen on")
+	flag.Parse()
+	addr := ":" + strconv.Itoa(*port)
+
 	go func() {
-		srv := &dns.Server{Addr: ":53", Net: "udp4", Handler: handler}
+		srv := &dns.Server{Addr: addr, Net: "udp4", Handler: dns.HandlerFunc(udpHandler)}
 		err := srv.ListenAndServe()
 		if err != nil {
 			log.Fatalf("Failed to set udp listener %s\n", err.Error())
 		}
 	}()
 	go func() {
-		srv := &dns.Server{Addr: ":53", Net: "tcp4", Handler: handler}
+		srv := &dns.Server{Addr: addr, Net: "tcp4", Handler: dns.HandlerFunc(tcpHandler)}
 		err := srv.ListenAndServe()
 		if err != nil {
 			log.Fatalf("Failed to set tcp listener %s\n", err.Error())
 		}
 	}()
+	log.Printf("Listening on %s (udp/tcp), forwarding to %s over TLS\n", addr, upstreamAddr)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
 	log.Fatalf("Signal (%d) received, stopping\n", s)
 }
 
-func dnsHandler(w dns.ResponseWriter, m *dns.Msg) {
+func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	if len(m.Question) > 0 {
-		fmt.Printf("%s\n", m.Question[0].Name)
+		q := m.Question[0]
+		log.Printf("[%s] %s %s %s\n", proto, w.RemoteAddr(), dns.TypeToString[q.Qtype], q.Name)
 	}
 	r, _, err := client.Exchange(m, upstreamAddr)
 	if err != nil {
-		log.Printf("Upstream exchange failed: %s\n", err)
+		log.Printf("[%s] Upstream exchange failed: %s\n", proto, err)
 		r = new(dns.Msg)
 		r.SetRcode(m, dns.RcodeServerFailure)
 	}
 	w.WriteMsg(r)
+}
+
+func udpHandler(w dns.ResponseWriter, m *dns.Msg) {
+	dnsHandler(w, m, "udp")
+}
+
+func tcpHandler(w dns.ResponseWriter, m *dns.Msg) {
+	dnsHandler(w, m, "tcp")
 }
