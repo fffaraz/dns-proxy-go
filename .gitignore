@@ -9,3 +9,9 @@ microdns-proxy
 
 # Local blocklist
 blocklist.txt
+
+# WHOIS cache
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

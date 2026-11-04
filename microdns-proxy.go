@@ -44,9 +44,14 @@ var client = &dns.Client{
 // It is nil when no blocklist is configured.
 var blocklist atomic.Pointer[map[string]struct{}]
 
+// Initialized before the DNS listeners start; nil disables age filtering.
+var ageFilter *domainAgeFilter
+
 type config struct {
-	Port      int      `toml:"port"`
-	Blocklist []string `toml:"blocklist"`
+	Port             int      `toml:"port"`
+	Blocklist        []string `toml:"blocklist"`
+	MinDomainAgeDays int      `toml:"min_domain_age_days"`
+	WhoisDBPath      string   `toml:"whois_db_path"`
 }
 
 func loadConfig(path string) (config, error) {
@@ -60,6 +65,9 @@ func loadConfig(path string) (config, error) {
 	}
 	if cfg.Port < 1 || cfg.Port > 65535 {
 		return cfg, fmt.Errorf("port must be between 1 and 65535")
+	}
+	if cfg.MinDomainAgeDays < 0 {
+		return cfg, fmt.Errorf("min_domain_age_days must be nonnegative")
 	}
 	return cfg, nil
 }
@@ -90,6 +98,14 @@ func main() {
 			log.Fatalf("Failed to load blocklist: %s\n", err)
 		}
 	}
+	ageFilter, err = openDomainAgeFilter(cfg)
+	if err != nil {
+		log.Fatalf("Failed to open WHOIS cache: %s", err)
+	}
+	if ageFilter != nil {
+		defer ageFilter.db.Close()
+		log.Printf("Domain age filtering enabled: domains must be older than %d days", cfg.MinDomainAgeDays)
+	}
 
 	go func() {
 		srv := &dns.Server{Addr: addr, Net: "udp4", Handler: dns.HandlerFunc(udpHandler)}
@@ -110,7 +126,8 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	for s := range sig {
 		if s != syscall.SIGHUP {
-			log.Fatalf("Signal (%d) received, stopping\n", s)
+			log.Printf("Signal (%d) received, stopping\n", s)
+			return
 		}
 		if len(blocklistPaths) == 0 {
 			log.Println("SIGHUP received, but no blocklist configured")
@@ -220,7 +237,19 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		return
 	}
 	q := m.Question[0]
-	if isBlocked(q.Name) {
+	blocked := isBlocked(q.Name)
+	if !blocked {
+		var err error
+		blocked, err = ageFilter.isBlocked(q.Name, start)
+		if err != nil {
+			r := new(dns.Msg)
+			r.SetRcode(m, dns.RcodeServerFailure)
+			w.WriteMsg(r)
+			log.Printf("[%s] %s %s %s WHOIS check failed: %s", proto, host, dns.TypeToString[q.Qtype], q.Name, err)
+			return
+		}
+	}
+	if blocked {
 		r := new(dns.Msg)
 		r.SetRcode(m, dns.RcodeNameError)
 		w.WriteMsg(r)

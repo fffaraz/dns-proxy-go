@@ -20,6 +20,8 @@ The only CLI argument is an optional TOML config file path, defaulting to
 ```toml
 port = 5300
 blocklist = []
+min_domain_age_days = 0
+whois_db_path = "whois.db"
 ```
 
 Set `port = 53` to use the standard DNS port (needs root or
@@ -58,6 +60,45 @@ or `docker compose kill -s HUP`). If any file fails to load, the previous list
 stays active. SIGHUP reloads the blocklist contents; restart after changing the
 config. Docker Compose mounts `config.toml`; add blocklist file mounts as shown
 in `compose.yaml` and use their container paths in the config.
+
+## Newly registered domains
+
+Set `min_domain_age_days` to a positive number to enable domain age filtering:
+
+```toml
+min_domain_age_days = 30
+whois_db_path = "whois.db"
+```
+
+The default is `0` (disabled), which opens no database and performs no WHOIS
+lookups. Negative values are rejected. `whois_db_path` defaults to `whois.db`
+in the process working directory. Its parent directory must exist and be writable.
+
+After checking the blocklist, each query checks SQLite for the registered
+domain's creation date. On a miss, the proxy queries WHOIS and caches only the
+domain name and creation date in the `domains` table (`name`, `creation_date`).
+Subdomains share their registered domain's entry, including names under
+multi-label suffixes such as `example.co.uk`. Private hosting suffixes such as
+`github.io` use the hosting domain's age. Reverse DNS, local names, and bare
+public suffixes are exempt because they have no registered domain to check.
+
+Only domains strictly older than the configured number of 24-hour days reach
+the upstream. Younger domains return NXDOMAIN. Age is recalculated on every
+query, so cached domains become allowed as they age. WHOIS errors, missing or
+invalid creation dates, and cache errors return SERVFAIL; unsuccessful lookups
+are not cached and may be retried. Some registries no longer provide WHOIS or
+omit creation dates, so enabling this setting can make those domains unavailable.
+
+Cold queries require outbound TCP port 43 for WHOIS and can be slower; WHOIS
+connections have a five-second timeout per server. WHOIS server names are
+resolved directly through the existing TLS upstream to avoid recursion when
+the proxy is the system resolver. Successful entries persist across restarts
+and are not refreshed automatically; remove an entry to recheck a domain that
+was deleted and registered again. Restart after changing either setting.
+
+Docker runs in `/data`, with the Compose `whois-cache` volume persisting the
+default `whois.db`. Use an absolute path for custom config and blocklist paths
+inside the container.
 
 ## Using it as the system resolver (systemd-resolved)
 
