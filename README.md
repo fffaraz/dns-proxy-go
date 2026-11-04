@@ -75,18 +75,21 @@ The default is `0` (disabled), which opens no database and performs no WHOIS
 lookups. Negative values are rejected. `whois_db_path` defaults to `whois.db`
 in the process working directory. Its parent directory must exist and be writable.
 
-After checking the blocklist, each query checks SQLite for the registered
-domain's creation date. On a miss, the proxy queries WHOIS and caches only the
+After checking the blocklist, the proxy queries upstream DNS. Only successful
+responses with at least one answer trigger a SQLite check for the registered
+domain's creation date. NXDOMAIN, empty answers, and upstream failures skip
+the age check. On a cache miss, the proxy queries WHOIS and caches only the
 domain name and creation date in the `domains` table (`name`, `creation_date`).
 Subdomains share their registered domain's entry, including names under
 multi-label suffixes such as `example.co.uk`. Private hosting suffixes such as
 `github.io` use the hosting domain's age. Reverse DNS, local names, and bare
 public suffixes are exempt because they have no registered domain to check.
 
-Only domains strictly older than the configured number of 24-hour days reach
-the upstream. Younger domains return NXDOMAIN. Age is recalculated on every
-query, so cached domains become allowed as they age. WHOIS errors, missing or
-invalid creation dates, and cache errors return SERVFAIL; unsuccessful lookups
+Only domains strictly older than the configured number of 24-hour days have
+their positive DNS answers returned to the client. Younger domains return
+NXDOMAIN. Age is recalculated for each positive response, so cached domains
+become allowed as they age. WHOIS errors, missing or invalid creation dates,
+and cache errors return SERVFAIL; unsuccessful lookups
 are not cached and may be retried. Some registries no longer provide WHOIS or
 omit creation dates, so enabling this setting can make those domains unavailable.
 

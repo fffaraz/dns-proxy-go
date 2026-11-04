@@ -31,13 +31,19 @@ const (
 	upstreamSPKIPin = "ltQ6aXy3tqpNZKJdnevMD7oR+IsI5rNWbOssFDrl+Ew="
 )
 
-var client = &dns.Client{
-	Net: "tcp-tls",
-	TLSConfig: &tls.Config{
-		ServerName:            upstreamServerName,
-		MinVersion:            tls.VersionTLS13,
-		VerifyPeerCertificate: verifyPin,
-	},
+var upstreamTLSConfig = &tls.Config{
+	ServerName:            upstreamServerName,
+	MinVersion:            tls.VersionTLS13,
+	VerifyPeerCertificate: verifyPin,
+}
+
+type dnsExchanger interface {
+	Exchange(*dns.Msg, string) (*dns.Msg, time.Duration, error)
+}
+
+var client dnsExchanger = &dns.Client{
+	Net:       "tcp-tls",
+	TLSConfig: upstreamTLSConfig,
 }
 
 // blocklist holds the current set of blocked FQDNs (lowercase, trailing dot).
@@ -237,19 +243,7 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		return
 	}
 	q := m.Question[0]
-	blocked := isBlocked(q.Name)
-	if !blocked {
-		var err error
-		blocked, err = ageFilter.isBlocked(q.Name, start)
-		if err != nil {
-			r := new(dns.Msg)
-			r.SetRcode(m, dns.RcodeServerFailure)
-			w.WriteMsg(r)
-			log.Printf("[%s] %s %s %s WHOIS check failed: %s", proto, host, dns.TypeToString[q.Qtype], q.Name, err)
-			return
-		}
-	}
-	if blocked {
+	if isBlocked(q.Name) {
 		r := new(dns.Msg)
 		r.SetRcode(m, dns.RcodeNameError)
 		w.WriteMsg(r)
@@ -262,6 +256,22 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		log.Printf("[%s] Upstream exchange failed: %s\n", proto, err)
 		r = new(dns.Msg)
 		r.SetRcode(m, dns.RcodeServerFailure)
+	} else if r.Rcode == dns.RcodeSuccess && len(r.Answer) > 0 {
+		// Check age only after DNS confirms an answer, avoiding WHOIS for
+		// nonexistent names, empty answers, and upstream failures.
+		blocked, err := ageFilter.isBlocked(q.Name, time.Now())
+		if err != nil {
+			log.Printf("[%s] %s %s %s WHOIS check failed: %s", proto, host, dns.TypeToString[q.Qtype], q.Name, err)
+			r = new(dns.Msg)
+			r.SetRcode(m, dns.RcodeServerFailure)
+		} else if blocked {
+			r = new(dns.Msg)
+			r.SetRcode(m, dns.RcodeNameError)
+			w.WriteMsg(r)
+			log.Printf("[%s] %s %s %s BLOCKED (domain age) %s", proto, host, dns.TypeToString[q.Qtype], q.Name,
+				time.Since(start).Round(time.Microsecond))
+			return
+		}
 	}
 	w.WriteMsg(r)
 	elapsed := time.Since(start).Round(time.Millisecond)

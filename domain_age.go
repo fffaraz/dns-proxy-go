@@ -133,7 +133,7 @@ func lookupCreationDate(domain string) (time.Time, error) {
 		Resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				d := tls.Dialer{NetDialer: &net.Dialer{Timeout: whoisTimeout}, Config: client.TLSConfig}
+				d := tls.Dialer{NetDialer: &net.Dialer{Timeout: whoisTimeout}, Config: upstreamTLSConfig}
 				return d.DialContext(ctx, "tcp", upstreamAddr)
 			},
 		},
