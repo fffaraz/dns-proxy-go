@@ -1,0 +1,3 @@
+port = 5300
+blocklist = []
+# blocklist = ["ads.txt", "trackers.txt"]

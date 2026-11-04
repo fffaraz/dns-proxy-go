@@ -5,19 +5,37 @@ DNS proxy written in Go.
 
 ```sh
 go build -o microdns-proxy .
-sudo ./microdns-proxy          # listens on port 53 (needs root or CAP_NET_BIND_SERVICE)
-./microdns-proxy -p 5300       # listens on a custom port
+./microdns-proxy                  # reads ./config.toml
+./microdns-proxy /path/config.toml # reads a different config file
 
 dig @127.0.0.1 -p 5300 example.com         # test over UDP
 dig @127.0.0.1 -p 5300 example.com +tcp    # test over TCP
 ```
 
+## Configuration
+
+The only CLI argument is an optional TOML config file path, defaulting to
+`./config.toml`. The file must exist. The included config listens on port 5300:
+
+```toml
+port = 5300
+blocklist = []
+```
+
+Set `port = 53` to use the standard DNS port (needs root or
+CAP_NET_BIND_SERVICE). If omitted, `port` defaults to 53.
+
 ## Blocklist
 
-```sh
-./microdns-proxy -p 5300 -blocklist blocklist.txt
-./microdns-proxy -p 5300 -blocklist ads.txt -blocklist trackers.txt   # repeatable; lists are merged
+Add file paths to the config; the lists are merged:
+
+```toml
+port = 5300
+blocklist = ["ads.txt", "trackers.txt"]
 ```
+
+Relative blocklist paths are resolved from the process working directory.
+Omit `blocklist` or use an empty array to disable blocking.
 
 Queries for a listed domain, or any subdomain of it, get NXDOMAIN without
 reaching the upstream. The file may mix these line formats, so most published
@@ -37,12 +55,14 @@ curl -fsSL -o blocklist.txt https://raw.githubusercontent.com/StevenBlack/hosts/
 
 Send `SIGHUP` to reload the files without restarting (`pkill -HUP microdns-proxy`,
 or `docker compose kill -s HUP`). If any file fails to load, the previous list
-stays active. For Docker, uncomment the `volumes`/`command` lines in `compose.yaml`.
+stays active. SIGHUP reloads the blocklist contents; restart after changing the
+config. Docker Compose mounts `config.toml`; add blocklist file mounts as shown
+in `compose.yaml` and use their container paths in the config.
 
 ## Using it as the system resolver (systemd-resolved)
 
 systemd-resolved already listens on port 53, so run the proxy on another
-port (e.g. `-p 5300`) and have resolved forward to it. Create
+port (e.g. `port = 5300` in `config.toml`) and have resolved forward to it. Create
 `/etc/systemd/resolved.conf.d/microdns-proxy.conf`:
 
 ```ini

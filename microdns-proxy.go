@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/miekg/dns"
 )
 
@@ -43,19 +44,46 @@ var client = &dns.Client{
 // It is nil when no blocklist is configured.
 var blocklist atomic.Pointer[map[string]struct{}]
 
-// stringList is a flag.Value that collects every occurrence of a repeatable flag.
-type stringList []string
+type config struct {
+	Port      int      `toml:"port"`
+	Blocklist []string `toml:"blocklist"`
+}
 
-func (l *stringList) String() string     { return strings.Join(*l, ",") }
-func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
+func loadConfig(path string) (config, error) {
+	cfg := config{Port: 53}
+	metadata, err := toml.DecodeFile(path, &cfg)
+	if err != nil {
+		return cfg, err
+	}
+	if keys := metadata.Undecoded(); len(keys) > 0 {
+		return cfg, fmt.Errorf("unknown config keys: %v", keys)
+	}
+	if cfg.Port < 1 || cfg.Port > 65535 {
+		return cfg, fmt.Errorf("port must be between 1 and 65535")
+	}
+	return cfg, nil
+}
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
-	port := flag.Int("p", 53, "port to listen on")
-	var blocklistPaths stringList
-	flag.Var(&blocklistPaths, "blocklist", "file of domains to block (plain, hosts or ||domain^ format); repeatable; reloaded on SIGHUP")
+	flag.Usage = func() {
+		fmt.Fprintf(flag.CommandLine.Output(), "Usage: %s [config-path]\nConfig path defaults to ./config.toml.\n", os.Args[0])
+	}
 	flag.Parse()
-	addr := ":" + strconv.Itoa(*port)
+	if flag.NArg() > 1 {
+		flag.Usage()
+		os.Exit(2)
+	}
+	configPath := "./config.toml"
+	if flag.NArg() == 1 {
+		configPath = flag.Arg(0)
+	}
+	cfg, err := loadConfig(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config %s: %s", configPath, err)
+	}
+	addr := ":" + strconv.Itoa(cfg.Port)
+	blocklistPaths := cfg.Blocklist
 
 	if len(blocklistPaths) > 0 {
 		if err := loadBlocklists(blocklistPaths); err != nil {
