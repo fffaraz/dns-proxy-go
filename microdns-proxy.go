@@ -170,6 +170,7 @@ func loadBlocklists(paths []string) error {
 
 // readBlocklist adds the domains in path to set. Each line may be a plain domain,
 // a hosts entry ("0.0.0.0 domain ...") or an adblock rule ("||domain^").
+// Adblock comments ("!") and bracketed headers are ignored.
 func readBlocklist(path string, set map[string]struct{}) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -179,6 +180,10 @@ func readBlocklist(path string, set map[string]struct{}) error {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line, _, _ := strings.Cut(sc.Text(), "#")
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "!") || strings.HasPrefix(line, "[") {
+			continue
+		}
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
 			continue
