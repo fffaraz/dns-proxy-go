@@ -1,5 +1,5 @@
 port = 5300
 blocklist = []
 # blocklist = ["ads.txt", "trackers.txt"]
-min_domain_age_days = 0
+min_domain_age_days = 1825 # 5 years at 365 days per year
 whois_db_path = "whois.db"

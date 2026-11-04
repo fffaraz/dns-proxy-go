@@ -20,7 +20,7 @@ The only CLI argument is an optional TOML config file path, defaulting to
 ```toml
 port = 5300
 blocklist = []
-min_domain_age_days = 0
+min_domain_age_days = 1825 # 5 years at 365 days per year
 whois_db_path = "whois.db"
 ```
 
@@ -63,10 +63,11 @@ in `compose.yaml` and use their container paths in the config.
 
 ## Newly registered domains
 
-Set `min_domain_age_days` to a positive number to enable domain age filtering:
+Set `min_domain_age_days` to a positive number to enable domain age filtering.
+For example, five years at 365 days per year:
 
 ```toml
-min_domain_age_days = 30
+min_domain_age_days = 1825
 whois_db_path = "whois.db"
 ```
 
@@ -130,15 +131,11 @@ public key (SPKI), stored in `upstreamSPKIPin` in `microdns-proxy.go`. If
 Cloudflare rotates its key, every query will return SERVFAIL and the log will
 show `certificate pin mismatch: got <new value>`.
 
-To get the current value:
+Run [get-upstream-pin.sh](get-upstream-pin.sh) (requires Bash and OpenSSL) to
+verify the certificate chain and hostname and print the current pin:
 
 ```sh
-echo | openssl s_client -connect 1.1.1.2:853 -servername cloudflare-dns.com 2>/dev/null \
-  | openssl x509 -pubkey -noout \
-  | openssl pkey -pubin -outform der \
-  | openssl dgst -sha256 -binary \
-  | base64
+./get-upstream-pin.sh
 ```
 
-Check that the certificate is genuine (subject `cloudflare-dns.com`, valid chain),
-then put the output in `upstreamSPKIPin` and rebuild.
+Put the printed pin in `upstreamSPKIPin` and rebuild.

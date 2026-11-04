@@ -8,10 +8,7 @@ services:
       - "0.0.0.0:5300:5300/tcp"
     volumes:
       - ./config.toml:/config.toml:ro
-      - whois-cache:/data
+      - ./whois-cache:/data
     # Add blocklist paths to config.toml and mount the files below.
     # Reload blocklist contents with: docker compose kill -s HUP
     #   - ./blocklist.txt:/blocklist.txt:ro
-
-volumes:
-  whois-cache:
