@@ -77,3 +77,17 @@ resolvectl query example.com
 ```
 
 To undo, delete that file and restart systemd-resolved.
+
+## Updating the pinned key
+
+If DNS queries fail and logs show `certificate pin mismatch`, the upstream key
+may have changed. Run this helper (requires Bash and OpenSSL) to verify the
+certificate and print its current pin:
+
+```sh
+./get-upstream-pin.sh
+```
+
+Replace `upstreamSPKIPin` in `microdns-proxy.go` with the printed value, then
+run `./run-docker.sh` to rebuild and restart. For local runs, rebuild the binary
+and restart the process.
