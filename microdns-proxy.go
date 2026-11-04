@@ -278,10 +278,21 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 			return
 		}
 	}
+	if proto == "udp" {
+		size := dns.MinMsgSize
+		if opt := m.IsEdns0(); opt != nil {
+			size = int(opt.UDPSize())
+		}
+		r.Truncate(size)
+	}
 	w.WriteMsg(r)
 	elapsed := time.Since(start).Round(time.Millisecond)
-	log.Printf("[%s] %s %s %s %s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
-		dns.RcodeToString[r.Rcode], elapsed)
+	truncated := ""
+	if r.Truncated {
+		truncated = " TRUNCATED"
+	}
+	log.Printf("[%s] %s %s %s %s%s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
+		dns.RcodeToString[r.Rcode], truncated, elapsed)
 }
 
 func udpHandler(w dns.ResponseWriter, m *dns.Msg) {
