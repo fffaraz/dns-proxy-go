@@ -250,46 +250,116 @@ func (w *ageResponseWriter) TsigStatus() error           { return nil }
 func (w *ageResponseWriter) TsigTimersOnly(bool)         {}
 func (w *ageResponseWriter) Hijack()                     {}
 
+type dnsExchangeFunc func(*dns.Msg, string) (*dns.Msg, time.Duration, error)
+
+func (f dnsExchangeFunc) Exchange(m *dns.Msg, addr string) (*dns.Msg, time.Duration, error) {
+	return f(m, addr)
+}
+
 func TestDomainAgeDNSResponses(t *testing.T) {
-	previousFilter, previousBlocklist := ageFilter, blocklist.Load()
-	t.Cleanup(func() { ageFilter = previousFilter; blocklist.Store(previousBlocklist) })
-	for _, tt := range []struct {
-		name      string
-		proto     string
-		listed    bool
-		lookupErr error
-		want      int
-	}{
-		{"young UDP", "udp", false, nil, dns.RcodeNameError},
-		{"young TCP", "tcp", false, nil, dns.RcodeNameError},
-		{"unknown age UDP", "udp", false, errors.New("unavailable"), dns.RcodeServerFailure},
-		{"unknown age TCP", "tcp", false, errors.New("unavailable"), dns.RcodeServerFailure},
-		{"blocklist first", "udp", true, errors.New("must not look up"), dns.RcodeNameError},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			ageFilter = testAgeFilter(t, filepath.Join(t.TempDir(), "whois.db"))
-			ageFilter.lookup = func(string) (time.Time, error) {
-				if tt.listed {
-					t.Fatal("blocklisted domain reached WHOIS")
+	previousFilter, previousBlocklist, previousClient := ageFilter, blocklist.Load(), client
+	t.Cleanup(func() {
+		ageFilter = previousFilter
+		blocklist.Store(previousBlocklist)
+		client = previousClient
+	})
+	for _, proto := range []string{"udp", "tcp"} {
+		for _, tt := range []struct {
+			name        string
+			listed      bool
+			disabled    bool
+			rcode       int
+			hasAnswer   bool
+			dnsErr      error
+			age         time.Duration
+			lookupErr   error
+			want        int
+			wantDNS     int
+			wantWHOIS   int
+			passthrough bool
+		}{
+			{name: "young", hasAnswer: true, age: 24 * time.Hour, want: dns.RcodeNameError, wantDNS: 1, wantWHOIS: 1},
+			{name: "old", hasAnswer: true, age: 365 * 24 * time.Hour, want: dns.RcodeSuccess, wantDNS: 1, wantWHOIS: 1, passthrough: true},
+			{name: "unknown age", hasAnswer: true, lookupErr: errors.New("unavailable"), want: dns.RcodeServerFailure, wantDNS: 1, wantWHOIS: 1},
+			{name: "nonexistent", rcode: dns.RcodeNameError, want: dns.RcodeNameError, wantDNS: 1, passthrough: true},
+			{name: "nonexistent alias target", rcode: dns.RcodeNameError, hasAnswer: true, want: dns.RcodeNameError, wantDNS: 1, passthrough: true},
+			{name: "empty answer", want: dns.RcodeSuccess, wantDNS: 1, passthrough: true},
+			{name: "upstream SERVFAIL", rcode: dns.RcodeServerFailure, want: dns.RcodeServerFailure, wantDNS: 1, passthrough: true},
+			{name: "upstream REFUSED", rcode: dns.RcodeRefused, want: dns.RcodeRefused, wantDNS: 1, passthrough: true},
+			{name: "upstream timeout", dnsErr: errors.New("timeout"), want: dns.RcodeServerFailure, wantDNS: 1},
+			{name: "disabled", disabled: true, hasAnswer: true, want: dns.RcodeSuccess, wantDNS: 1, passthrough: true},
+			{name: "blocklist first", listed: true, want: dns.RcodeNameError},
+		} {
+			t.Run(proto+"/"+tt.name, func(t *testing.T) {
+				dnsCalls, whoisCalls := 0, 0
+				ageFilter = testAgeFilter(t, filepath.Join(t.TempDir(), "whois.db"))
+				ageFilter.lookup = func(string) (time.Time, error) {
+					whoisCalls++
+					if dnsCalls != 1 {
+						t.Fatal("WHOIS ran before the upstream DNS query")
+					}
+					return time.Now().Add(-tt.age), tt.lookupErr
 				}
-				return time.Now().Add(-24 * time.Hour), tt.lookupErr
-			}
-			blocklist.Store(nil)
-			if tt.listed {
-				set := map[string]struct{}{"example.com.": {}}
-				blocklist.Store(&set)
-			}
-			m := new(dns.Msg)
-			m.SetQuestion("www.example.com.", dns.TypeA)
-			w := new(ageResponseWriter)
-			if tt.proto == "tcp" {
-				tcpHandler(w, m)
-			} else {
-				udpHandler(w, m)
-			}
-			if w.msg == nil || w.msg.Rcode != tt.want || w.msg.Id != m.Id || !w.msg.Response {
-				t.Fatalf("DNS response = %v, want rcode %d", w.msg, tt.want)
-			}
-		})
+				if tt.wantWHOIS == 0 {
+					// Even a broken cache must not affect negative DNS responses.
+					ageFilter.db.Close()
+				}
+				if tt.disabled {
+					ageFilter = nil
+				}
+				blocklist.Store(nil)
+				if tt.listed {
+					set := map[string]struct{}{"example.com.": {}}
+					blocklist.Store(&set)
+				}
+				m := new(dns.Msg)
+				m.SetQuestion("www.example.com.", dns.TypeA)
+				var upstreamResponse *dns.Msg
+				client = dnsExchangeFunc(func(query *dns.Msg, addr string) (*dns.Msg, time.Duration, error) {
+					dnsCalls++
+					if query != m || addr != upstreamAddr {
+						t.Fatal("unexpected upstream query or address")
+					}
+					if tt.dnsErr != nil {
+						return nil, 0, tt.dnsErr
+					}
+					upstreamResponse = new(dns.Msg)
+					upstreamResponse.SetRcode(query, tt.rcode)
+					if tt.hasAnswer {
+						if tt.rcode == dns.RcodeNameError {
+							upstreamResponse.Answer = []dns.RR{&dns.CNAME{
+								Hdr:    dns.RR_Header{Name: query.Question[0].Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: 60},
+								Target: "missing.example.net.",
+							}}
+						} else {
+							upstreamResponse.Answer = []dns.RR{&dns.A{
+								Hdr: dns.RR_Header{Name: query.Question[0].Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 60},
+								A:   net.ParseIP("192.0.2.1"),
+							}}
+						}
+					}
+					return upstreamResponse, 0, nil
+				})
+				w := new(ageResponseWriter)
+				if proto == "tcp" {
+					tcpHandler(w, m)
+				} else {
+					udpHandler(w, m)
+				}
+				if w.msg == nil || w.msg.Rcode != tt.want || w.msg.Id != m.Id || !w.msg.Response {
+					t.Fatalf("DNS response = %v, want rcode %d", w.msg, tt.want)
+				}
+				if dnsCalls != tt.wantDNS || whoisCalls != tt.wantWHOIS {
+					t.Fatalf("DNS/WHOIS calls = %d/%d, want %d/%d", dnsCalls, whoisCalls, tt.wantDNS, tt.wantWHOIS)
+				}
+				if tt.passthrough {
+					if w.msg != upstreamResponse {
+						t.Fatal("upstream response was replaced")
+					}
+				} else if len(w.msg.Answer) != 0 {
+					t.Fatal("blocked/failed response retained upstream answers")
+				}
+			})
+		}
 	}
 }
