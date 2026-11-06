@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,6 +36,9 @@ func openDomainAgeFilter(cfg config) (*domainAgeFilter, error) {
 	path := cfg.WhoisDBPath
 	if path == "" {
 		path = "whois.db"
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return nil, fmt.Errorf("create WHOIS cache directory: %w", err)
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
