@@ -60,6 +60,7 @@ type config struct {
 	MinDomainAgeDays int      `toml:"min_domain_age_days"`
 	WhoisDBPath      string   `toml:"whois_db_path"`
 	DoHPort          int      `toml:"doh_port"`
+	SelfSigned       bool     `toml:"self_signed"`
 	DoHCertFile      string   `toml:"doh_cert_file"`
 	DoHKeyFile       string   `toml:"doh_key_file"`
 }
@@ -85,7 +86,10 @@ func loadConfig(path string) (config, error) {
 	if (cfg.DoHCertFile == "") != (cfg.DoHKeyFile == "") {
 		return cfg, fmt.Errorf("doh_cert_file and doh_key_file must be configured together")
 	}
-	if cfg.DoHPort == 0 && cfg.DoHCertFile != "" {
+	if cfg.SelfSigned && cfg.DoHCertFile != "" {
+		return cfg, fmt.Errorf("self_signed cannot be combined with doh_cert_file and doh_key_file")
+	}
+	if cfg.DoHPort == 0 && (cfg.SelfSigned || cfg.DoHCertFile != "") {
 		return cfg, fmt.Errorf("doh_port is required when configuring DoH certificates")
 	}
 	return cfg, nil
@@ -126,11 +130,14 @@ func main() {
 		log.Printf("Domain age filtering enabled: domains must be older than %d days", cfg.MinDomainAgeDays)
 	}
 	if cfg.DoHPort != 0 {
-		srv := newDoHServer(cfg)
+		srv, err := newDoHServer(cfg)
+		if err != nil {
+			log.Fatalf("Failed to configure DoH listener: %s", err)
+		}
 		defer srv.Close()
 		go func() {
 			var err error
-			if cfg.DoHCertFile != "" {
+			if cfg.SelfSigned || cfg.DoHCertFile != "" {
 				err = srv.ListenAndServeTLS(cfg.DoHCertFile, cfg.DoHKeyFile)
 			} else {
 				err = srv.ListenAndServe()
@@ -140,7 +147,7 @@ func main() {
 			}
 		}()
 		scheme := "http"
-		if cfg.DoHCertFile != "" {
+		if cfg.SelfSigned || cfg.DoHCertFile != "" {
 			scheme = "https"
 		}
 		log.Printf("Listening on %s://%s/dns-query", scheme, srv.Addr)

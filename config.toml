@@ -1,7 +1,9 @@
 dns_port = 5300 # for both udp and tcp
 
 doh_port = 8080 # 0 disables DoH
-# Set both files to serve HTTPS directly instead:
+self_signed = true # Generate a fresh in-memory HTTPS certificate on each startup
+
+# To use your own certificate, set self_signed = false and both files:
 # doh_cert_file = "/certs/fullchain.pem"
 # doh_key_file = "/certs/privkey.pem"
 

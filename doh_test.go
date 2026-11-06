@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,7 +100,11 @@ func TestDoHResponses(t *testing.T) {
 				req := httptest.NewRequest(method, path, bytes.NewReader(requestWire))
 				req.Header.Set("Content-Type", dnsMessageType)
 				w := httptest.NewRecorder()
-				newDoHServer(config{}).Handler.ServeHTTP(w, req)
+				srv, err := newDoHServer(config{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				srv.Handler.ServeHTTP(w, req)
 				if w.Code != http.StatusOK {
 					t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 				}
@@ -166,7 +173,11 @@ func TestDoHInvalidRequests(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, bytes.NewReader(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			w := httptest.NewRecorder()
-			newDoHServer(config{}).Handler.ServeHTTP(w, req)
+			srv, err := newDoHServer(config{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			srv.Handler.ServeHTTP(w, req)
 			if w.Code != tt.status {
 				t.Errorf("HTTP %d, want %d: %s", w.Code, tt.status, w.Body.String())
 			}
@@ -181,12 +192,36 @@ func TestDoHOverHTTPS(t *testing.T) {
 	resetDoHState(t)
 	set := map[string]struct{}{"example.test.": {}}
 	blocklist.Store(&set)
-	srv := httptest.NewUnstartedServer(newDoHServer(config{}).Handler)
-	srv.EnableHTTP2 = true
-	srv.StartTLS()
-	defer srv.Close()
+	httpServer, err := newDoHServer(config{SelfSigned: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- httpServer.ServeTLS(listener, "", "") }()
+	t.Cleanup(func() {
+		httpServer.Close()
+		if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+			t.Errorf("ServeTLS: %v", err)
+		}
+	})
+	cert, err := x509.ParseCertificate(httpServer.TLSConfig.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	transport := &http.Transport{
+		TLSClientConfig:   &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12},
+		ForceAttemptHTTP2: true,
+	}
+	t.Cleanup(transport.CloseIdleConnections)
+	httpClient := &http.Client{Transport: transport, Timeout: 5 * time.Second}
 	_, wire := dohQuery(t)
-	resp, err := srv.Client().Post(srv.URL+"/dns-query", dnsMessageType, bytes.NewReader(wire))
+	resp, err := httpClient.Post("https://"+listener.Addr().String()+"/dns-query", dnsMessageType, bytes.NewReader(wire))
 	if err != nil {
 		t.Fatal(err)
 	}

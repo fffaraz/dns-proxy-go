@@ -17,9 +17,17 @@ import (
 
 const dnsMessageType = "application/dns-message"
 
-func newDoHServer(cfg config) *http.Server {
+func newDoHServer(cfg config) (*http.Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dns-query", dohHandler)
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cfg.SelfSigned {
+		cert, err := newSelfSignedCertificate()
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
 	return &http.Server{
 		Addr:              ":" + strconv.Itoa(cfg.DoHPort),
 		Handler:           mux,
@@ -29,8 +37,8 @@ func newDoHServer(cfg config) *http.Server {
 		IdleTimeout:       60 * time.Second,
 		// A maximum-size DNS message needs about 87 KiB when base64url encoded.
 		MaxHeaderBytes: 128 << 10,
-		TLSConfig:      &tls.Config{MinVersion: tls.VersionTLS12},
-	}
+		TLSConfig:      tlsConfig,
+	}, nil
 }
 
 // dohHandler implements the RFC 8484 DNS wire format for GET and POST.
