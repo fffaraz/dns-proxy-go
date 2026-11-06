@@ -65,7 +65,7 @@ type config struct {
 }
 
 func loadConfig(path string) (config, error) {
-	cfg := config{DNSPort: 53}
+	cfg := config{DNSPort: 5300}
 	metadata, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
 		return cfg, err

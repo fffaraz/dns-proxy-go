@@ -14,14 +14,14 @@ func TestLoadConfig(t *testing.T) {
 		want    config
 		wantErr bool
 	}{
-		{name: "defaults", want: config{DNSPort: 53}},
-		{name: "configured", input: "dns_port = 5300\nblocklist = [\"ads.txt\", \"trackers.txt\"]", want: config{DNSPort: 5300, Blocklist: []string{"ads.txt", "trackers.txt"}}},
-		{name: "empty blocklist", input: "blocklist = []", want: config{DNSPort: 53, Blocklist: []string{}}},
-		{name: "domain age", input: "min_domain_age_days = 30\nwhois_db_path = \"cache.sqlite\"", want: config{DNSPort: 53, MinDomainAgeDays: 30, WhoisDBPath: "cache.sqlite"}},
-		{name: "disabled domain age", input: "min_domain_age_days = 0", want: config{DNSPort: 53}},
-		{name: "DoH HTTP", input: "doh_port = 8080", want: config{DNSPort: 53, DoHPort: 8080}},
-		{name: "DoH HTTPS", input: "doh_port = 8443\ndoh_cert_file = \"cert.pem\"\ndoh_key_file = \"key.pem\"", want: config{DNSPort: 53, DoHPort: 8443, DoHCertFile: "cert.pem", DoHKeyFile: "key.pem"}},
-		{name: "DoH disabled", input: "doh_port = 0", want: config{DNSPort: 53}},
+		{name: "defaults", want: config{DNSPort: 5300}},
+		{name: "configured", input: "dns_port = 5353\nblocklist = [\"ads.txt\", \"trackers.txt\"]", want: config{DNSPort: 5353, Blocklist: []string{"ads.txt", "trackers.txt"}}},
+		{name: "empty blocklist", input: "blocklist = []", want: config{DNSPort: 5300, Blocklist: []string{}}},
+		{name: "domain age", input: "min_domain_age_days = 30\nwhois_db_path = \"cache.sqlite\"", want: config{DNSPort: 5300, MinDomainAgeDays: 30, WhoisDBPath: "cache.sqlite"}},
+		{name: "disabled domain age", input: "min_domain_age_days = 0", want: config{DNSPort: 5300}},
+		{name: "DoH HTTP", input: "doh_port = 8080", want: config{DNSPort: 5300, DoHPort: 8080}},
+		{name: "DoH HTTPS", input: "doh_port = 8443\ndoh_cert_file = \"cert.pem\"\ndoh_key_file = \"key.pem\"", want: config{DNSPort: 5300, DoHPort: 8443, DoHCertFile: "cert.pem", DoHKeyFile: "key.pem"}},
+		{name: "DoH disabled", input: "doh_port = 0", want: config{DNSPort: 5300}},
 		{name: "DoH wrong port type", input: "doh_port = \"8080\"", wantErr: true},
 		{name: "DoH negative port", input: "doh_port = -1", wantErr: true},
 		{name: "DoH port too large", input: "doh_port = 65536", wantErr: true},
