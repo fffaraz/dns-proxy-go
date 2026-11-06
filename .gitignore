@@ -2,6 +2,9 @@
 microdns-proxy
 *.exe
 
+# Local TLS certificates and private keys
+/certs/
+
 # Test and profiling output
 *.test
 *.prof

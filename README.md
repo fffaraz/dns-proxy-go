@@ -65,6 +65,23 @@ every startup; no certificate files are written. The certificate is valid
 for one year and covers `localhost`, `127.0.0.1`, and `::1`. It is not trusted
 automatically by clients; use `curl -k` for local testing.
 
+For Chrome, generate a locally trusted certificate on the machine running
+the browser. Install [mkcert](https://github.com/FiloSottile/mkcert#installation)
+and, on Linux, `certutil` (`nss-tools` on Fedora or `libnss3-tools` on
+Debian/Ubuntu), then run:
+
+```sh
+./mkcert.sh
+# Optionally include another hostname or IP used to reach the proxy:
+./mkcert.sh dns.example.test 192.168.1.10
+```
+
+The script installs mkcert's local CA, generates `certs/doh.pem` and
+`certs/doh-key.pem`, and prints the configuration and Docker mount to apply.
+Restart the proxy and Chrome afterward. Each run regenerates the server
+certificate using mkcert's local CA. The `certs/` directory is excluded from
+Git and the Docker build context; Docker uses a read-only volume mount.
+
 To use your own certificate, disable `self_signed` and set both paths:
 
 ```toml

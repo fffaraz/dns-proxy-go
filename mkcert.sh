@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run on the machine running Chrome. Extra arguments add hostnames or IPs.
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
+
+if ! command -v mkcert >/dev/null 2>&1; then
+  printf '%s\n' 'mkcert is required. Install it from https://github.com/FiloSottile/mkcert#installation' >&2
+  exit 1
+fi
+
+if [[ "$(uname -s)" == Linux ]] && ! command -v certutil >/dev/null 2>&1; then
+  printf '%s\n' \
+    'certutil is required to install the CA for Chrome on Linux.' \
+    'Fedora: sudo dnf install nss-tools' \
+    'Debian/Ubuntu: sudo apt install libnss3-tools' >&2
+  exit 1
+fi
+
+# mkcert may request administrator privileges to install its local CA.
+mkcert -install
+
+umask 077
+mkdir -p -- certs
+mkcert -cert-file certs/doh.pem -key-file certs/doh-key.pem \
+  localhost 127.0.0.1 ::1 "$@"
+chmod 600 certs/doh-key.pem
+
+cat <<'EOF'
+
+Certificates are ready. Set these values in config.toml:
+
+self_signed = false
+doh_cert_file = "./certs/doh.pem"
+doh_key_file = "./certs/doh-key.pem"
+
+For Docker, add this entry under volumes in compose.yaml:
+
+      - ./certs:/certs:ro
+
+Restart the proxy and Chrome. With doh_port = 8080, use this Secure DNS URL:
+https://127.0.0.1:8080/dns-query
+EOF

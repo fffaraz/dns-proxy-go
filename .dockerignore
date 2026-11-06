@@ -4,6 +4,7 @@ README.md
 microdns-proxy
 blocklist.txt
 whois-cache/
+certs/
 *.db
 *.db-journal
 *.db-shm

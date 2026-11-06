@@ -29,7 +29,7 @@ func newSelfSignedCertificate() (tls.Certificate, error) {
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: "dns-proxy-go"},
-		NotBefore:             now.Add(-5 * time.Minute),
+		NotBefore:             now.Add(-10 * time.Minute),
 		NotAfter:              now.AddDate(1, 0, 0),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
