@@ -1,8 +1,10 @@
-dns_port = 5300
-doh_port = 8080 # HTTP behind a TLS reverse proxy; 0 disables DoH
+dns_port = 5300 # for both udp and tcp
+
+doh_port = 8080 # 0 disables DoH
 # Set both files to serve HTTPS directly instead:
 # doh_cert_file = "/certs/fullchain.pem"
 # doh_key_file = "/certs/privkey.pem"
-blocklist = ["stevenblack.txt", "hagezi-multi.txt"]
-min_domain_age_days = 1825 # 5 years at 365 days per year
-whois_db_path = "./whois-cache/whois.db"
+
+# blocklist = ["stevenblack.txt", "hagezi-multi.txt"]
+# min_domain_age_days = 1825 # 5 years at 365 days per year
+# whois_db_path = "./whois-cache/whois.db"
