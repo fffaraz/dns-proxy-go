@@ -76,8 +76,8 @@ the browser. The script uses an existing `mkcert` or installs it with
 ./mkcert.sh dns.example.test 192.168.1.10
 ```
 
-The script installs mkcert's local CA, generates `certs/doh.pem` and
-`certs/doh-key.pem`, and prints the configuration and Docker mount to apply.
+The script installs mkcert's local CA, generates `certs/fullchain.pem` and
+`certs/privkey.pem`, and prints the configuration and Docker mount to apply.
 Restart the proxy and Chrome afterward. Each run regenerates the server
 certificate using mkcert's local CA. The `certs/` directory is excluded from
 Git and the Docker build context; Docker uses a read-only volume mount.

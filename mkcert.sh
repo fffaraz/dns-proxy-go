@@ -35,17 +35,17 @@ fi
 
 umask 077
 mkdir -p -- certs
-"$mkcert_bin" -cert-file certs/doh.pem -key-file certs/doh-key.pem \
+"$mkcert_bin" -cert-file certs/fullchain.pem -key-file certs/privkey.pem \
   localhost 127.0.0.1 ::1 "$@"
-chmod 600 certs/doh-key.pem
+chmod 600 certs/privkey.pem
 
 cat <<'EOF'
 
 Certificates are ready. Set these values in config.toml:
 
 self_signed = false
-doh_cert_file = "./certs/doh.pem"
-doh_key_file = "./certs/doh-key.pem"
+doh_cert_file = "./certs/fullchain.pem"
+doh_key_file = "./certs/privkey.pem"
 
 For Docker, add this entry under volumes in compose.yaml:
 
