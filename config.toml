@@ -1,11 +1,11 @@
 dns_port = 5300 # for both udp and tcp
 
 doh_port = 8080 # 0 disables DoH
-self_signed = true # Generate a fresh in-memory HTTPS certificate on each startup
+self_signed = false # Generate a fresh in-memory HTTPS certificate on each startup
 
 # To use your own certificate, set self_signed = false and both files:
-# doh_cert_file = "./certs/fullchain.pem"
-# doh_key_file = "./certs/privkey.pem"
+doh_cert_file = "./certs/fullchain.pem"
+doh_key_file = "./certs/privkey.pem"
 
 # blocklist = ["stevenblack.txt", "hagezi-multi.txt"]
 # min_domain_age_days = 1825 # 5 years at 365 days per year
