@@ -14,5 +14,5 @@ ADD --chmod=644 https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
 ADD --chmod=644 https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/adblock/multi.txt /hagezi-multi.txt
 COPY config.toml /config.toml
 USER 65534:65534
-EXPOSE 5300/udp 5300/tcp
+EXPOSE 5300/udp 5300/tcp 8080/tcp
 ENTRYPOINT ["/microdns-proxy"]

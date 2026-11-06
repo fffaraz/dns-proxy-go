@@ -263,7 +263,7 @@ func TestDomainAgeDNSResponses(t *testing.T) {
 		blocklist.Store(previousBlocklist)
 		client = previousClient
 	})
-	for _, proto := range []string{"udp", "tcp"} {
+	for _, proto := range []string{"udp", "tcp", "doh"} {
 		for _, tt := range []struct {
 			name        string
 			listed      bool
@@ -341,10 +341,13 @@ func TestDomainAgeDNSResponses(t *testing.T) {
 					return upstreamResponse, 0, nil
 				})
 				w := new(ageResponseWriter)
-				if proto == "tcp" {
+				switch proto {
+				case "tcp":
 					tcpHandler(w, m)
-				} else {
+				case "udp":
 					udpHandler(w, m)
+				case "doh":
+					dnsHandler(w, m, proto)
 				}
 				if w.msg == nil || w.msg.Rcode != tt.want || w.msg.Id != m.Id || !w.msg.Response {
 					t.Fatalf("DNS response = %v, want rcode %d", w.msg, tt.want)

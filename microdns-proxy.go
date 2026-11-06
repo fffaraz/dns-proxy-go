@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -58,6 +59,9 @@ type config struct {
 	Blocklist        []string `toml:"blocklist"`
 	MinDomainAgeDays int      `toml:"min_domain_age_days"`
 	WhoisDBPath      string   `toml:"whois_db_path"`
+	DoHAddr          string   `toml:"doh_addr"`
+	DoHCertFile      string   `toml:"doh_cert_file"`
+	DoHKeyFile       string   `toml:"doh_key_file"`
 }
 
 func loadConfig(path string) (config, error) {
@@ -74,6 +78,21 @@ func loadConfig(path string) (config, error) {
 	}
 	if cfg.MinDomainAgeDays < 0 {
 		return cfg, fmt.Errorf("min_domain_age_days must be nonnegative")
+	}
+	if (cfg.DoHCertFile == "") != (cfg.DoHKeyFile == "") {
+		return cfg, fmt.Errorf("doh_cert_file and doh_key_file must be configured together")
+	}
+	if cfg.DoHAddr == "" && cfg.DoHCertFile != "" {
+		return cfg, fmt.Errorf("doh_addr is required when configuring DoH certificates")
+	}
+	if cfg.DoHAddr != "" {
+		_, port, err := net.SplitHostPort(cfg.DoHAddr)
+		if err != nil {
+			return cfg, fmt.Errorf("invalid doh_addr: %w", err)
+		}
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return cfg, fmt.Errorf("doh_addr port must be between 1 and 65535")
+		}
 	}
 	return cfg, nil
 }
@@ -111,6 +130,26 @@ func main() {
 	if ageFilter != nil {
 		defer ageFilter.db.Close()
 		log.Printf("Domain age filtering enabled: domains must be older than %d days", cfg.MinDomainAgeDays)
+	}
+	if cfg.DoHAddr != "" {
+		srv := newDoHServer(cfg)
+		defer srv.Close()
+		go func() {
+			var err error
+			if cfg.DoHCertFile != "" {
+				err = srv.ListenAndServeTLS(cfg.DoHCertFile, cfg.DoHKeyFile)
+			} else {
+				err = srv.ListenAndServe()
+			}
+			if err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalf("Failed to start DoH listener: %s", err)
+			}
+		}()
+		scheme := "http"
+		if cfg.DoHCertFile != "" {
+			scheme = "https"
+		}
+		log.Printf("Listening on %s://%s/dns-query", scheme, cfg.DoHAddr)
 	}
 
 	go func() {
@@ -238,23 +277,26 @@ func verifyPin(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 }
 
 func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
+	w.WriteMsg(resolveDNS(m, proto, w.RemoteAddr().String()))
+}
+
+// resolveDNS applies the same filtering and upstream policy to every transport.
+func resolveDNS(m *dns.Msg, proto, remoteAddr string) *dns.Msg {
 	start := time.Now()
-	host, _, _ := net.SplitHostPort(w.RemoteAddr().String())
+	host, _, _ := net.SplitHostPort(remoteAddr)
 	if len(m.Question) != 1 {
 		log.Printf("[%s] %s rejected query with %d questions\n", proto, host, len(m.Question))
 		r := new(dns.Msg)
 		r.SetRcode(m, dns.RcodeFormatError)
-		w.WriteMsg(r)
-		return
+		return r
 	}
 	q := m.Question[0]
 	if isBlocked(q.Name) {
 		r := new(dns.Msg)
 		r.SetRcode(m, dns.RcodeNameError)
-		w.WriteMsg(r)
 		log.Printf("[%s] %s %s %s BLOCKED %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
 			time.Since(start).Round(time.Microsecond))
-		return
+		return r
 	}
 	r, _, err := client.Exchange(m, upstreamAddr)
 	if err != nil {
@@ -272,10 +314,9 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		} else if blocked {
 			r = new(dns.Msg)
 			r.SetRcode(m, dns.RcodeNameError)
-			w.WriteMsg(r)
 			log.Printf("[%s] %s %s %s BLOCKED (domain age) %s", proto, host, dns.TypeToString[q.Qtype], q.Name,
 				time.Since(start).Round(time.Microsecond))
-			return
+			return r
 		}
 	}
 	if proto == "udp" {
@@ -285,7 +326,6 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 		}
 		r.Truncate(size)
 	}
-	w.WriteMsg(r)
 	elapsed := time.Since(start).Round(time.Millisecond)
 	truncated := ""
 	if r.Truncated {
@@ -293,6 +333,7 @@ func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	}
 	log.Printf("[%s] %s %s %s %s%s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
 		dns.RcodeToString[r.Rcode], truncated, elapsed)
+	return r
 }
 
 func udpHandler(w dns.ResponseWriter, m *dns.Msg) {
