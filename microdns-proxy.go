@@ -55,17 +55,17 @@ var blocklist atomic.Pointer[map[string]struct{}]
 var ageFilter *domainAgeFilter
 
 type config struct {
-	Port             int      `toml:"port"`
+	DNSPort          int      `toml:"dns_port"`
 	Blocklist        []string `toml:"blocklist"`
 	MinDomainAgeDays int      `toml:"min_domain_age_days"`
 	WhoisDBPath      string   `toml:"whois_db_path"`
-	DoHAddr          string   `toml:"doh_addr"`
+	DoHPort          int      `toml:"doh_port"`
 	DoHCertFile      string   `toml:"doh_cert_file"`
 	DoHKeyFile       string   `toml:"doh_key_file"`
 }
 
 func loadConfig(path string) (config, error) {
-	cfg := config{Port: 53}
+	cfg := config{DNSPort: 53}
 	metadata, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
 		return cfg, err
@@ -73,8 +73,11 @@ func loadConfig(path string) (config, error) {
 	if keys := metadata.Undecoded(); len(keys) > 0 {
 		return cfg, fmt.Errorf("unknown config keys: %v", keys)
 	}
-	if cfg.Port < 1 || cfg.Port > 65535 {
-		return cfg, fmt.Errorf("port must be between 1 and 65535")
+	if cfg.DNSPort < 1 || cfg.DNSPort > 65535 {
+		return cfg, fmt.Errorf("dns_port must be between 1 and 65535")
+	}
+	if cfg.DoHPort < 0 || cfg.DoHPort > 65535 {
+		return cfg, fmt.Errorf("doh_port must be between 1 and 65535, or 0 to disable DoH")
 	}
 	if cfg.MinDomainAgeDays < 0 {
 		return cfg, fmt.Errorf("min_domain_age_days must be nonnegative")
@@ -82,17 +85,8 @@ func loadConfig(path string) (config, error) {
 	if (cfg.DoHCertFile == "") != (cfg.DoHKeyFile == "") {
 		return cfg, fmt.Errorf("doh_cert_file and doh_key_file must be configured together")
 	}
-	if cfg.DoHAddr == "" && cfg.DoHCertFile != "" {
-		return cfg, fmt.Errorf("doh_addr is required when configuring DoH certificates")
-	}
-	if cfg.DoHAddr != "" {
-		_, port, err := net.SplitHostPort(cfg.DoHAddr)
-		if err != nil {
-			return cfg, fmt.Errorf("invalid doh_addr: %w", err)
-		}
-		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
-			return cfg, fmt.Errorf("doh_addr port must be between 1 and 65535")
-		}
+	if cfg.DoHPort == 0 && cfg.DoHCertFile != "" {
+		return cfg, fmt.Errorf("doh_port is required when configuring DoH certificates")
 	}
 	return cfg, nil
 }
@@ -115,7 +109,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config %s: %s", configPath, err)
 	}
-	addr := ":" + strconv.Itoa(cfg.Port)
+	addr := ":" + strconv.Itoa(cfg.DNSPort)
 	blocklistPaths := cfg.Blocklist
 
 	if len(blocklistPaths) > 0 {
@@ -131,7 +125,7 @@ func main() {
 		defer ageFilter.db.Close()
 		log.Printf("Domain age filtering enabled: domains must be older than %d days", cfg.MinDomainAgeDays)
 	}
-	if cfg.DoHAddr != "" {
+	if cfg.DoHPort != 0 {
 		srv := newDoHServer(cfg)
 		defer srv.Close()
 		go func() {
@@ -149,7 +143,7 @@ func main() {
 		if cfg.DoHCertFile != "" {
 			scheme = "https"
 		}
-		log.Printf("Listening on %s://%s/dns-query", scheme, cfg.DoHAddr)
+		log.Printf("Listening on %s://%s/dns-query", scheme, srv.Addr)
 	}
 
 	go func() {

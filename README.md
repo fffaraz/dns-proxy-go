@@ -27,8 +27,8 @@ docker compose down                # Stop
 Edit `config.toml`, then restart:
 
 ```toml
-port = 5300
-doh_addr = ":8080"
+dns_port = 5300
+doh_port = 8080
 blocklist = ["blocklist.txt"]
 min_domain_age_days = 1825 # About 5 years; 0 disables age filtering
 whois_db_path = "./whois-cache/whois.db"
@@ -64,7 +64,7 @@ The supplied config listens on HTTP port **8080**; Docker exposes it at
 directly:
 
 ```toml
-doh_addr = ":8443"
+doh_port = 8443
 doh_cert_file = "/certs/fullchain.pem"
 doh_key_file = "/certs/privkey.pem"
 ```
@@ -84,7 +84,7 @@ curl --fail --header 'Accept: application/dns-message' \
   --output response.dns
 ```
 
-Omitting `doh_addr` or setting it to `""` disables the webserver. Without
+Omitting `doh_port` or setting it to `0` disables the webserver. Without
 certificate settings, the listener uses plain HTTP for a TLS reverse proxy.
 
 ## Run without Docker

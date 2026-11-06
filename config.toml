@@ -1,5 +1,5 @@
-port = 5300
-doh_addr = ":8080" # HTTP behind a TLS reverse proxy; empty disables DoH
+dns_port = 5300
+doh_port = 8080 # HTTP behind a TLS reverse proxy; 0 disables DoH
 # Set both files to serve HTTPS directly instead:
 # doh_cert_file = "/certs/fullchain.pem"
 # doh_key_file = "/certs/privkey.pem"

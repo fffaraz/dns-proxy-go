@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/miekg/dns"
@@ -20,7 +21,7 @@ func newDoHServer(cfg config) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/dns-query", dohHandler)
 	return &http.Server{
-		Addr:              cfg.DoHAddr,
+		Addr:              ":" + strconv.Itoa(cfg.DoHPort),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
