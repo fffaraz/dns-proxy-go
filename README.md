@@ -66,9 +66,9 @@ for one year and covers `localhost`, `127.0.0.1`, and `::1`. It is not trusted
 automatically by clients; use `curl -k` for local testing.
 
 For Chrome, generate a locally trusted certificate on the machine running
-the browser. Install [mkcert](https://github.com/FiloSottile/mkcert#installation)
-and, on Linux, `certutil` (`nss-tools` on Fedora or `libnss3-tools` on
-Debian/Ubuntu), then run:
+the browser. The script uses an existing `mkcert` or installs it with
+`go install filippo.io/mkcert@latest` (requires Go). On Linux, install
+`certutil` (`nss-tools` on Fedora or `libnss3-tools` on Debian/Ubuntu), then run:
 
 ```sh
 ./mkcert.sh

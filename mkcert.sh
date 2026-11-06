@@ -4,11 +4,6 @@ set -euo pipefail
 # Run on the machine running Chrome. Extra arguments add hostnames or IPs.
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-if ! command -v mkcert >/dev/null 2>&1; then
-  printf '%s\n' 'mkcert is required. Install it from https://github.com/FiloSottile/mkcert#installation' >&2
-  exit 1
-fi
-
 if [[ "$(uname -s)" == Linux ]] && ! command -v certutil >/dev/null 2>&1; then
   printf '%s\n' \
     'certutil is required to install the CA for Chrome on Linux.' \
@@ -17,12 +12,30 @@ if [[ "$(uname -s)" == Linux ]] && ! command -v certutil >/dev/null 2>&1; then
   exit 1
 fi
 
+mkcert_bin=mkcert
+if ! command -v mkcert >/dev/null 2>&1; then
+  if ! command -v go >/dev/null 2>&1; then
+    printf '%s\n' 'Go is required to install mkcert automatically. Install Go and rerun this script.' >&2
+    exit 1
+  fi
+  printf '%s\n' 'Installing mkcert with go install...'
+  go install filippo.io/mkcert@latest
+
+  # Go's binary directory may not be on PATH. Honor GOBIN and GOPATH defaults.
+  mkcert_dir=$(go env GOBIN)
+  if [[ -z "$mkcert_dir" ]]; then
+    mkcert_gopath=$(go env GOPATH)
+    mkcert_dir="${mkcert_gopath%%:*}/bin"
+  fi
+  mkcert_bin="$mkcert_dir/mkcert"
+fi
+
 # mkcert may request administrator privileges to install its local CA.
-mkcert -install
+"$mkcert_bin" -install
 
 umask 077
 mkdir -p -- certs
-mkcert -cert-file certs/doh.pem -key-file certs/doh-key.pem \
+"$mkcert_bin" -cert-file certs/doh.pem -key-file certs/doh-key.pem \
   localhost 127.0.0.1 ::1 "$@"
 chmod 600 certs/doh-key.pem
 
