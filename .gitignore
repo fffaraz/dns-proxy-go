@@ -10,7 +10,8 @@
 *.prof
 *.out
 
-# Local blocklist
+# Local blocklists
+/blocklists/
 blocklist.txt
 
 # WHOIS cache

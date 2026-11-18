@@ -30,7 +30,7 @@ Edit `config.toml`, then restart:
 dns_port = 5300
 doh_port = 8080
 self_signed = true
-blocklist = ["blocklist.txt"]
+blocklist = ["blocklists/stevenblack.txt", "blocklists/hagezi-multi.txt"]
 min_domain_age_days = 1825 # About 5 years; 0 disables age filtering
 whois_db_path = "./whois-cache/whois.db"
 ```
@@ -114,10 +114,14 @@ paths in that case.
 
 ## Run without Docker
 
-Requires Go 1.26.8 or newer. Set `blocklist` to local files (or `[]`).
+Requires Go 1.26.8 or newer, Bash, and curl. Download the configured lists into
+`blocklists/` with `./download-blocklists.sh`; rerun it to update them. This directory
+is excluded from Git and the Docker build context. Docker downloads its own copies
+into `/blocklists/` when building the image. Set `blocklist = []` to disable lists.
 Both Docker and local runs store the database at `./whois-cache/whois.db`.
 
 ```sh
+./download-blocklists.sh
 go build -o microdns-proxy ./cmd/microdns-proxy
 mkdir -p whois-cache
 ./microdns-proxy                     # Uses ./config.toml
