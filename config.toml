@@ -9,6 +9,9 @@ doh_cert_file = "./certs/fullchain.pem"
 doh_key_file = "./certs/privkey.pem"
 # chrome://flags/#allow-insecure-localhost
 
+# https://firebog.net/
+# https://oisd.nl/
+# https://tranco-list.eu/
 blocklist = ["blocklists/stevenblack.txt", "blocklists/hagezi-multi.txt"]
 
 # min_domain_age_days = 1825 # 5 years at 365 days per year
