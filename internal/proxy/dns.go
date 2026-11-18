@@ -75,12 +75,16 @@ func resolveDNS(m *dns.Msg, proto, remoteAddr string) *dns.Msg {
 		r.Truncate(size)
 	}
 	elapsed := time.Since(start).Round(time.Millisecond)
+	rcode := ""
+	if r.Rcode != dns.RcodeSuccess {
+		rcode = " " + dns.RcodeToString[r.Rcode]
+	}
 	truncated := ""
 	if r.Truncated {
 		truncated = " TRUNCATED"
 	}
-	log.Printf("[%s] %s %s %s %s%s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
-		dns.RcodeToString[r.Rcode], truncated, elapsed)
+	log.Printf("[%s] %s %s %s%s%s %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
+		rcode, truncated, elapsed)
 	return r
 }
 
