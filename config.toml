@@ -1,6 +1,6 @@
 dns_port = 5300 # for both udp and tcp
 
-# http://127.0.0.1:8080/dns-query
+# https://127.0.0.1:8080/dns-query
 doh_port = 8080 # 0 disables DoH
 self_signed = false # Generate a fresh in-memory HTTPS certificate on each startup
 
@@ -10,5 +10,6 @@ doh_key_file = "./certs/privkey.pem"
 # chrome://flags/#allow-insecure-localhost
 
 # blocklist = ["stevenblack.txt", "hagezi-multi.txt"]
+
 # min_domain_age_days = 1825 # 5 years at 365 days per year
 # whois_db_path = "./whois-cache/whois.db"
