@@ -118,6 +118,9 @@ func TestDoHResponses(t *testing.T) {
 				if !response.Response || response.Id != query.Id || response.Rcode != scenario.rcode {
 					t.Errorf("unexpected response: %s", response)
 				}
+				if scenario.blocked {
+					assertBlockedResponseTTL(t, response)
+				}
 				if scenario.rcode == dns.RcodeSuccess && (response.Truncated || len(response.Answer) != 12 || w.Body.Len() <= 512) {
 					t.Errorf("DoH must preserve the full response despite EDNS size: %s", response)
 				}

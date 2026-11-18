@@ -405,6 +405,9 @@ func TestDomainAgeDNSResponses(t *testing.T) {
 				} else if len(w.msg.Answer) != 0 {
 					t.Fatal("blocked/failed response retained upstream answers")
 				}
+				if !tt.passthrough && tt.want == dns.RcodeNameError {
+					assertBlockedResponseTTL(t, w.msg)
+				}
 			})
 		}
 	}

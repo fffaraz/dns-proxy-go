@@ -10,6 +10,32 @@ import (
 	"github.com/miekg/dns"
 )
 
+func assertBlockedResponseTTL(t *testing.T, response *dns.Msg) {
+	t.Helper()
+	// Check the values clients actually receive on the wire.
+	wire, err := response.Pack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := new(dns.Msg)
+	if err := decoded.Unpack(wire); err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Answer) != 0 || len(decoded.Ns) != 1 || len(decoded.Extra) != 0 {
+		t.Fatalf("expected only a negative-cache SOA in blocked response: %s", decoded)
+	}
+	soa, ok := decoded.Ns[0].(*dns.SOA)
+	if !ok {
+		t.Fatalf("blocked authority record = %T, want SOA", decoded.Ns[0])
+	}
+	if soa.Hdr.Name != decoded.Question[0].Name || soa.Hdr.Class != decoded.Question[0].Qclass {
+		t.Errorf("SOA does not match blocked question: %s", decoded)
+	}
+	if soa.Hdr.Ttl != 0 || soa.Minttl != 0 {
+		t.Errorf("blocked SOA TTL/MINIMUM = %d/%d, want 0/0", soa.Hdr.Ttl, soa.Minttl)
+	}
+}
+
 func TestDNSResponseSize(t *testing.T) {
 	previousClient, previousFilter, previousBlocklist := client, ageFilter, blocklist.Load()
 	previousLogOutput := log.Writer()

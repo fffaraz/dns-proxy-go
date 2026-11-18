@@ -36,7 +36,8 @@ whois_db_path = "./whois-cache/whois.db"
 ```
 
 Use `blocklist = []` to disable blocklists. Blocked domains and their subdomains
-return NXDOMAIN. Age filtering also blocks young domains. WHOIS responses without
+return NXDOMAIN with a zero negative-cache TTL. Age filtering also blocks young
+domains with the same zero TTL. WHOIS responses without
 a creation date are cached and allowed without further WHOIS lookups, including
 after restarts. WHOIS lookup failures and malformed dates may still prevent
 resolution. WHOIS requires outbound TCP port 43.

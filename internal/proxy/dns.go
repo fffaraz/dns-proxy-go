@@ -11,6 +11,21 @@ import (
 // Initialized before the DNS listeners start; nil disables age filtering.
 var ageFilter *domainAgeFilter
 
+func blockedResponse(m *dns.Msg) *dns.Msg {
+	r := new(dns.Msg)
+	r.SetRcode(m, dns.RcodeNameError)
+	// RFC 2308: negative caching uses the smaller of the SOA TTL and MINIMUM.
+	r.Ns = []dns.RR{&dns.SOA{
+		Hdr: dns.RR_Header{
+			Name: m.Question[0].Name, Rrtype: dns.TypeSOA, Class: m.Question[0].Qclass, Ttl: 0,
+		},
+		Ns:     ".",
+		Mbox:   ".",
+		Minttl: 0,
+	}}
+	return r
+}
+
 func dnsHandler(w dns.ResponseWriter, m *dns.Msg, proto string) {
 	w.WriteMsg(resolveDNS(m, proto, w.RemoteAddr().String()))
 }
@@ -27,8 +42,7 @@ func resolveDNS(m *dns.Msg, proto, remoteAddr string) *dns.Msg {
 	}
 	q := m.Question[0]
 	if isBlocked(q.Name) {
-		r := new(dns.Msg)
-		r.SetRcode(m, dns.RcodeNameError)
+		r := blockedResponse(m)
 		log.Printf("[%s] %s %s %s BLOCKED %s\n", proto, host, dns.TypeToString[q.Qtype], q.Name,
 			time.Since(start).Round(time.Microsecond))
 		return r
@@ -47,8 +61,7 @@ func resolveDNS(m *dns.Msg, proto, remoteAddr string) *dns.Msg {
 			r = new(dns.Msg)
 			r.SetRcode(m, dns.RcodeServerFailure)
 		} else if blocked {
-			r = new(dns.Msg)
-			r.SetRcode(m, dns.RcodeNameError)
+			r = blockedResponse(m)
 			log.Printf("[%s] %s %s %s BLOCKED (domain age) %s", proto, host, dns.TypeToString[q.Qtype], q.Name,
 				time.Since(start).Round(time.Microsecond))
 			return r
