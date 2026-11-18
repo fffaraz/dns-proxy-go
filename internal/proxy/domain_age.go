@@ -60,7 +60,8 @@ func openDomainAgeFilter(cfg config) (*domainAgeFilter, error) {
 }
 
 // isBlocked reevaluates age on every query, so a cached young domain eventually
-// becomes eligible without another WHOIS lookup. Unknown ages return an error.
+// becomes eligible without another WHOIS lookup. An empty cached date records a
+// successful WHOIS response without a creation date and allows the domain.
 func (f *domainAgeFilter) isBlocked(name string, now time.Time) (bool, error) {
 	if f == nil {
 		return false, nil
@@ -74,6 +75,9 @@ func (f *domainAgeFilter) isBlocked(name string, now time.Time) (bool, error) {
 		var date string
 		err := f.db.QueryRow("SELECT creation_date FROM domains WHERE name = ?", domain).Scan(&date)
 		if err == nil {
+			if date == "" {
+				return time.Time{}, nil
+			}
 			created, err := time.Parse(time.RFC3339Nano, date)
 			if err != nil || created.IsZero() {
 				return nil, fmt.Errorf("invalid cached creation date for %s: %q", domain, date)
@@ -87,11 +91,11 @@ func (f *domainAgeFilter) isBlocked(name string, now time.Time) (bool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("WHOIS %s: %w", domain, err)
 		}
-		if created.IsZero() {
-			return nil, fmt.Errorf("WHOIS %s: missing creation date", domain)
+		if !created.IsZero() {
+			date = created.UTC().Format(time.RFC3339Nano)
 		}
 		_, err = f.db.Exec("INSERT INTO domains (name, creation_date) VALUES (?, ?) ON CONFLICT(name) DO NOTHING",
-			domain, created.UTC().Format(time.RFC3339Nano))
+			domain, date)
 		if err != nil {
 			return nil, fmt.Errorf("write WHOIS cache: %w", err)
 		}
@@ -100,8 +104,12 @@ func (f *domainAgeFilter) isBlocked(name string, now time.Time) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	created := value.(time.Time)
+	if created.IsZero() {
+		return false, nil
+	}
 	// Compare hours to avoid overflowing a time.Duration for large config values.
-	return now.Sub(value.(time.Time)).Hours() <= float64(f.minAgeDays)*24, nil
+	return now.Sub(created).Hours() <= float64(f.minAgeDays)*24, nil
 }
 
 // registeredDomain ignores private PSL entries: foo.github.io is registered as
@@ -155,7 +163,10 @@ func parseCreationDate(raw string) (time.Time, error) {
 	if err != nil {
 		return time.Time{}, err
 	}
-	if info.Domain == nil || info.Domain.CreatedDateInTime == nil || info.Domain.CreatedDateInTime.IsZero() {
+	if info.Domain == nil || info.Domain.CreatedDate == "" {
+		return time.Time{}, nil
+	}
+	if info.Domain.CreatedDateInTime == nil || info.Domain.CreatedDateInTime.IsZero() {
 		return time.Time{}, errors.New("WHOIS response has no valid creation date")
 	}
 	return info.Domain.CreatedDateInTime.UTC(), nil

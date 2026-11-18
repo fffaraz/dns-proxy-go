@@ -166,8 +166,42 @@ func TestDomainAgeConcurrentMisses(t *testing.T) {
 	}
 }
 
+func TestDomainAgeMissingDateCachePersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "whois.db")
+	f := testAgeFilter(t, path)
+	calls := 0
+	f.lookup = func(string) (time.Time, error) {
+		calls++
+		return parseCreationDate("Domain Name: EXAMPLE.COM\nUpdated Date: 2026-01-01T00:00:00Z\n")
+	}
+	for _, name := range []string{"www.example.com.", "mail.example.com."} {
+		if blocked, err := f.isBlocked(name, time.Now()); blocked || err != nil {
+			t.Fatalf("missing date check = %v, %v", blocked, err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("WHOIS calls = %d, want 1", calls)
+	}
+	var date string
+	if err := f.db.QueryRow("SELECT creation_date FROM domains WHERE name = 'example.com'").Scan(&date); err != nil || date != "" {
+		t.Fatalf("cached missing date = %q, %v", date, err)
+	}
+	if err := f.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	f = testAgeFilter(t, path)
+	f.lookup = func(string) (time.Time, error) {
+		t.Fatal("WHOIS called for a persistent missing date cache hit")
+		return time.Time{}, nil
+	}
+	if blocked, err := f.isBlocked("example.com.", time.Now()); blocked || err != nil {
+		t.Fatalf("cached missing date check = %v, %v", blocked, err)
+	}
+}
+
 func TestDomainAgeLookupFailuresNotCached(t *testing.T) {
-	for _, lookupErr := range []error{errors.New("WHOIS unavailable"), nil} {
+	_, malformedDateErr := parseCreationDate("Domain Name: EXAMPLE.COM\nCreation Date: garbage\n")
+	for _, lookupErr := range []error{errors.New("WHOIS unavailable"), malformedDateErr} {
 		f := testAgeFilter(t, filepath.Join(t.TempDir(), "whois.db"))
 		calls := 0
 		f.lookup = func(string) (time.Time, error) {
@@ -176,7 +210,7 @@ func TestDomainAgeLookupFailuresNotCached(t *testing.T) {
 		}
 		for i := 0; i < 2; i++ {
 			if _, err := f.isBlocked("example.com.", time.Now()); err == nil {
-				t.Fatal("expected lookup/missing date error")
+				t.Fatal("expected lookup error")
 			}
 		}
 		var count int
@@ -221,18 +255,22 @@ func TestParseCreationDate(t *testing.T) {
 	for _, tt := range []struct {
 		name, raw string
 		wantErr   bool
+		wantZero  bool
 	}{
-		{"valid", "Domain Name: EXAMPLE.COM\nCreation Date: 1995-08-14T04:00:00Z\n", false},
-		{"missing", "Domain Name: EXAMPLE.COM\nUpdated Date: 2026-01-01T00:00:00Z\n", true},
-		{"malformed date", "Domain Name: EXAMPLE.COM\nCreation Date: garbage\n", true},
-		{"rate limited", "WHOIS query limit exceeded", true},
+		{"valid", "Domain Name: EXAMPLE.COM\nCreation Date: 1995-08-14T04:00:00Z\n", false, false},
+		{"missing", "Domain Name: EXAMPLE.COM\nUpdated Date: 2026-01-01T00:00:00Z\n", false, true},
+		{"malformed date", "Domain Name: EXAMPLE.COM\nCreation Date: garbage\n", true, false},
+		{"rate limited", "WHOIS query limit exceeded", true, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseCreationDate(tt.raw)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("parse error = %v, wantErr %v", err, tt.wantErr)
 			}
-			if !tt.wantErr && got.Format(time.RFC3339) != "1995-08-14T04:00:00Z" {
+			if !tt.wantErr && tt.wantZero && !got.IsZero() {
+				t.Fatalf("creation date = %v, want zero", got)
+			}
+			if !tt.wantErr && !tt.wantZero && got.Format(time.RFC3339) != "1995-08-14T04:00:00Z" {
 				t.Fatalf("creation date = %v", got)
 			}
 		})
@@ -272,6 +310,7 @@ func TestDomainAgeDNSResponses(t *testing.T) {
 			hasAnswer   bool
 			dnsErr      error
 			age         time.Duration
+			missingDate bool
 			lookupErr   error
 			want        int
 			wantDNS     int
@@ -280,6 +319,7 @@ func TestDomainAgeDNSResponses(t *testing.T) {
 		}{
 			{name: "young", hasAnswer: true, age: 24 * time.Hour, want: dns.RcodeNameError, wantDNS: 1, wantWHOIS: 1},
 			{name: "old", hasAnswer: true, age: 365 * 24 * time.Hour, want: dns.RcodeSuccess, wantDNS: 1, wantWHOIS: 1, passthrough: true},
+			{name: "missing creation date", hasAnswer: true, missingDate: true, want: dns.RcodeSuccess, wantDNS: 1, wantWHOIS: 1, passthrough: true},
 			{name: "unknown age", hasAnswer: true, lookupErr: errors.New("unavailable"), want: dns.RcodeServerFailure, wantDNS: 1, wantWHOIS: 1},
 			{name: "nonexistent", rcode: dns.RcodeNameError, want: dns.RcodeNameError, wantDNS: 1, passthrough: true},
 			{name: "nonexistent alias target", rcode: dns.RcodeNameError, hasAnswer: true, want: dns.RcodeNameError, wantDNS: 1, passthrough: true},
@@ -297,6 +337,9 @@ func TestDomainAgeDNSResponses(t *testing.T) {
 					whoisCalls++
 					if dnsCalls != 1 {
 						t.Fatal("WHOIS ran before the upstream DNS query")
+					}
+					if tt.missingDate {
+						return time.Time{}, nil
 					}
 					return time.Now().Add(-tt.age), tt.lookupErr
 				}

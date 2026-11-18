@@ -36,8 +36,10 @@ whois_db_path = "./whois-cache/whois.db"
 ```
 
 Use `blocklist = []` to disable blocklists. Blocked domains and their subdomains
-return NXDOMAIN. Age filtering also blocks young domains; domains with unavailable
-WHOIS dates may fail to resolve. WHOIS requires outbound TCP port 43.
+return NXDOMAIN. Age filtering also blocks young domains. WHOIS responses without
+a creation date are cached and allowed without further WHOIS lookups, including
+after restarts. WHOIS lookup failures and malformed dates may still prevent
+resolution. WHOIS requires outbound TCP port 43.
 
 For custom blocklists, mount each file in `compose.yaml` and add its container path
 to `blocklist`. Plain domains, hosts files, and `||domain^` rules are supported.
