@@ -118,7 +118,7 @@ Requires Go 1.26.8 or newer. Set `blocklist` to local files (or `[]`).
 Both Docker and local runs store the database at `./whois-cache/whois.db`.
 
 ```sh
-go build -o microdns-proxy .
+go build -o microdns-proxy ./cmd/microdns-proxy
 mkdir -p whois-cache
 ./microdns-proxy                     # Uses ./config.toml
 ./microdns-proxy /path/config.toml   # Uses another config
@@ -152,6 +152,19 @@ certificate and print its current pin:
 ./get-upstream-pin.sh
 ```
 
-Replace `upstreamSPKIPin` in `microdns-proxy.go` with the printed value, then
+Replace `upstreamSPKIPin` in `internal/proxy/upstream.go` with the printed value, then
 run `./run-docker.sh` to rebuild and restart. For local runs, rebuild the binary
 and restart the process.
+
+## Development
+
+The command entry point lives in `cmd/microdns-proxy/main.go`. The proxy
+implementation and its tests live in `internal/proxy`, with separate files
+for configuration, blocklists, DNS handling, DoH, domain age filtering, and TLS.
+Runtime configuration and Docker files remain at the project root.
+
+Run all tests from the project root:
+
+```sh
+go test ./...
+```

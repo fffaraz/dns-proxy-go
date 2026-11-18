@@ -1,5 +1,5 @@
 # Build output
-microdns-proxy
+/microdns-proxy
 *.exe
 
 # Local TLS certificates and private keys
